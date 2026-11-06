@@ -11,7 +11,7 @@ jobs:
         with:
           go-version: '1.24'
           cache: false
-      - name: Test cancellation
+      - name: Test cancellation and graceful shutdown
         run: go test ./api/main.go ./api/main_test.go
       - name: Build image
         run: docker build -t convert-api ./api
@@ -39,3 +39,24 @@ jobs:
           docker cp api:/tmp/video.mp4 video.mp4
           curl -fsS -H 'X-API-Key: test' -F file=@video.mp4 -F format=gif http://127.0.0.1:8080/convert -o video.gif
           python3 -c 'assert open("video.gif", "rb").read(6) in (b"GIF87a", b"GIF89a")'
+      - name: Test an active request during container shutdown
+        run: |
+          mkdir -p "$RUNNER_TEMP/grace-check"
+          chmod 777 "$RUNNER_TEMP/grace-check"
+          cp input.txt output.pdf "$RUNNER_TEMP/grace-check/"
+          cat > "$RUNNER_TEMP/grace-check/mock-cli" <<'EOF'
+          #!/bin/sh
+          touch /grace-check/started
+          sleep 4
+          cp /grace-check/output.pdf "$6/output.pdf"
+          EOF
+          chmod 755 "$RUNNER_TEMP/grace-check/mock-cli"
+          docker run -d --name graceful -p 127.0.0.1:8081:8080 -v "$RUNNER_TEMP/grace-check:/grace-check" -e FILEE_CLI=/grace-check/mock-cli convert-api
+          for i in $(seq 1 30); do curl -fsS http://127.0.0.1:8081/health && break || sleep 1; done
+          curl -fsS -F "file=@$RUNNER_TEMP/grace-check/input.txt" -F format=pdf http://127.0.0.1:8081/convert -o "$RUNNER_TEMP/grace-check/result.pdf" &
+          request_pid=$!
+          for i in $(seq 1 50); do test -f "$RUNNER_TEMP/grace-check/started" && break || sleep 0.1; done
+          test -f "$RUNNER_TEMP/grace-check/started"
+          docker stop --time 10 graceful
+          wait "$request_pid"
+          cmp "$RUNNER_TEMP/grace-check/output.pdf" "$RUNNER_TEMP/grace-check/result.pdf"

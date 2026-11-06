@@ -10,9 +10,11 @@ import (
 	"io"
 	"log"
 	"mime"
+	"net"
 	"net/http"
 	"os"
 	"os/exec"
+	"os/signal"
 	"path/filepath"
 	"regexp"
 	"runtime"
@@ -47,6 +49,34 @@ func fileeCommand(ctx context.Context, cli string, args ...string) *exec.Cmd {
 }
 
 const maxSize = 40 << 20
+const shutdownGrace = 150 * time.Second
+
+// Stop accepting new requests on SIGTERM, but let conversions already in
+// progress finish before the container is replaced. The grace period exceeds
+// the converter's own timeout so a stuck native process is still bounded.
+func serveUntilShutdown(server *http.Server, listener net.Listener, signals <-chan os.Signal) error {
+	finished := make(chan error, 1)
+	go func() { finished <- server.Serve(listener) }()
+	select {
+	case err := <-finished:
+		if errors.Is(err, http.ErrServerClosed) {
+			return nil
+		}
+		return err
+	case <-signals:
+		ctx, cancel := context.WithTimeout(context.Background(), shutdownGrace)
+		defer cancel()
+		if err := server.Shutdown(ctx); err != nil {
+			_ = server.Close()
+			return fmt.Errorf("graceful shutdown: %w", err)
+		}
+		err := <-finished
+		if errors.Is(err, http.ErrServerClosed) {
+			return nil
+		}
+		return err
+	}
+}
 
 func fail(w http.ResponseWriter, code int, message string) {
 	w.Header().Set("Content-Type", "application/json")
@@ -305,5 +335,14 @@ func main() {
 		z.Close()
 	})
 	server := &http.Server{Addr: ":8080", ReadHeaderTimeout: 10 * time.Second, IdleTimeout: 60 * time.Second}
-	log.Fatal(server.ListenAndServe())
+	listener, err := net.Listen("tcp", server.Addr)
+	if err != nil {
+		log.Fatal(err)
+	}
+	signals := make(chan os.Signal, 1)
+	signal.Notify(signals, os.Interrupt, syscall.SIGTERM)
+	defer signal.Stop(signals)
+	if err := serveUntilShutdown(server, listener, signals); err != nil {
+		log.Fatal(err)
+	}
 }

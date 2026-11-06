@@ -2,8 +2,13 @@ package main
 
 import (
 	"context"
+	"fmt"
+	"io"
+	"net"
+	"net/http"
 	"os"
 	"path/filepath"
+	"syscall"
 	"testing"
 	"time"
 )
@@ -22,5 +27,63 @@ func TestCancelTerminatesConverterChildren(t *testing.T) {
 	time.Sleep(1500 * time.Millisecond)
 	if _, err := os.Stat(marker); !os.IsNotExist(err) {
 		t.Fatalf("converter child survived cancellation: stat error %v", err)
+	}
+}
+
+func TestShutdownWaitsForActiveRequest(t *testing.T) {
+	listener, err := net.Listen("tcp", "127.0.0.1:0")
+	if err != nil {
+		t.Fatal(err)
+	}
+	started, release := make(chan struct{}), make(chan struct{})
+	server := &http.Server{Handler: http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		close(started)
+		<-release
+		_, _ = io.WriteString(w, "finished")
+	})}
+	signals := make(chan os.Signal, 1)
+	stopped := make(chan error, 1)
+	go func() { stopped <- serveUntilShutdown(server, listener, signals) }()
+	response := make(chan error, 1)
+	go func() {
+		res, err := http.Get("http://" + listener.Addr().String())
+		if err != nil {
+			response <- err
+			return
+		}
+		defer res.Body.Close()
+		body, err := io.ReadAll(res.Body)
+		if err == nil && string(body) != "finished" {
+			err = fmt.Errorf("unexpected response %q", body)
+		}
+		response <- err
+	}()
+	select {
+	case <-started:
+	case <-time.After(5 * time.Second):
+		t.Fatal("request did not start")
+	}
+	signals <- syscall.SIGTERM
+	select {
+	case err := <-stopped:
+		t.Fatalf("server stopped before request finished: %v", err)
+	case <-time.After(100 * time.Millisecond):
+	}
+	close(release)
+	select {
+	case err := <-response:
+		if err != nil {
+			t.Fatal(err)
+		}
+	case <-time.After(5 * time.Second):
+		t.Fatal("request did not finish")
+	}
+	select {
+	case err := <-stopped:
+		if err != nil {
+			t.Fatal(err)
+		}
+	case <-time.After(5 * time.Second):
+		t.Fatal("server did not stop")
 	}
 }
