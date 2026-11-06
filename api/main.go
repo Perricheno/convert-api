@@ -19,11 +19,32 @@ import (
 	"strconv"
 	"strings"
 	"sync"
+	"syscall"
 	"time"
 )
 
 var extRE = regexp.MustCompile(`^[a-z0-9_]{1,20}(\.[a-z0-9_]{1,10})?$`)
 var assetRE = regexp.MustCompile(`^figure_[0-9]{1,3}\.(png|jpe?g)$`)
+
+// Filee launches native converters such as FFmpeg and LibreOffice. Cancel
+// their whole process group as well as the CLI when a request ends or times
+// out, otherwise abandoned engines can keep consuming CPU and disk space.
+func fileeCommand(ctx context.Context, cli string, args ...string) *exec.Cmd {
+	cmd := exec.CommandContext(ctx, cli, args...)
+	cmd.SysProcAttr = &syscall.SysProcAttr{Setpgid: true}
+	cmd.Cancel = func() error {
+		if cmd.Process == nil {
+			return os.ErrProcessDone
+		}
+		err := syscall.Kill(-cmd.Process.Pid, syscall.SIGKILL)
+		if errors.Is(err, syscall.ESRCH) {
+			return os.ErrProcessDone
+		}
+		return err
+	}
+	cmd.WaitDelay = 5 * time.Second
+	return cmd
+}
 
 const maxSize = 40 << 20
 
@@ -90,9 +111,13 @@ func main() {
 		defer os.RemoveAll(dir)
 		ctx, cancel := context.WithTimeout(r.Context(), 20*time.Second)
 		defer cancel()
-		cmd := exec.CommandContext(ctx, cli, "formats", ext, "--json")
+		cmd := fileeCommand(ctx, cli, "formats", ext, "--json")
 		cmd.Env = append(os.Environ(), "HOME="+dir, "FILEE_DATA_DIR="+filepath.Join(dir, "filee-data"))
 		output, err := cmd.Output()
+		if errors.Is(ctx.Err(), context.DeadlineExceeded) {
+			fail(w, 504, "Converter timed out")
+			return
+		}
 		if err != nil || !json.Valid(output) {
 			fail(w, 422, "Unsupported input format")
 			return
@@ -199,10 +224,14 @@ func main() {
 		}
 		ctx, cancel := context.WithTimeout(r.Context(), 120*time.Second)
 		defer cancel()
-		cmd := exec.CommandContext(ctx, cli, "convert", input, "--to", target, "-o", outdir)
+		cmd := fileeCommand(ctx, cli, "convert", input, "--to", target, "-o", outdir)
 		cmd.Env = append(os.Environ(), "HOME="+dir, "FILEE_DATA_DIR="+filepath.Join(dir, "filee-data"), "XDG_CONFIG_HOME="+filepath.Join(dir, "config"), "XDG_CACHE_HOME="+filepath.Join(dir, "cache"))
 		output, err := cmd.CombinedOutput()
 		if err != nil {
+			if errors.Is(ctx.Err(), context.DeadlineExceeded) {
+				fail(w, 504, "Converter timed out")
+				return
+			}
 			log.Printf("conversion failed: %s", output)
 			fail(w, 422, "Filee could not convert this file to the requested format")
 			return
