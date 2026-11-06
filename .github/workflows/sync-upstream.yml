@@ -25,6 +25,9 @@ jobs:
           fi
           git config user.name 'github-actions[bot]'
           git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          if git ls-remote --exit-code --heads origin automation/sync-filee >/dev/null; then
+            git fetch origin +refs/heads/automation/sync-filee:refs/remotes/origin/automation/sync-filee
+          fi
           git switch -C automation/sync-filee
           git merge --no-edit upstream/main
           git push --force-with-lease origin automation/sync-filee
