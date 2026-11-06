@@ -17,8 +17,16 @@ lines = get(checksums).decode().splitlines()
 sha = next(line.split()[0] for line in lines if line.split()[-1].lstrip("*") == archive)
 if not re.fullmatch(r"[a-fA-F0-9]{64}", sha):
     raise SystemExit("Invalid checksum")
+# Follow the exact FFmpeg build and checksum selected by that Filee release.
+manifest = json.loads(get(f"https://raw.githubusercontent.com/KnifeLemon/Filee/v{version}/src/Filee.Engines/Infrastructure/engines.json"))
+ffmpeg = manifest["platforms"]["linux-x64"]["components"]["ffmpeg"]
+ffmpeg_url, ffmpeg_sha = ffmpeg["url"], ffmpeg["sha256"].lower()
+if not ffmpeg_url.startswith("https://github.com/BtbN/FFmpeg-Builds/releases/download/") or not re.fullmatch(r"[a-f0-9]{64}", ffmpeg_sha):
+    raise SystemExit("Unexpected FFmpeg source or checksum; review manually")
 path = Path(__file__).with_name("Dockerfile")
 text = path.read_text()
 text = re.sub(r"(?m)^ARG FILEE_VERSION=.*$", f"ARG FILEE_VERSION={version}", text)
 text = re.sub(r"(?m)^ARG FILEE_SHA256=.*$", f"ARG FILEE_SHA256={sha.lower()}", text)
+text = re.sub(r"(?m)^ARG FFMPEG_URL=.*$", lambda _: f"ARG FFMPEG_URL={ffmpeg_url}", text)
+text = re.sub(r"(?m)^ARG FFMPEG_SHA256=.*$", lambda _: f"ARG FFMPEG_SHA256={ffmpeg_sha}", text)
 path.write_text(text)

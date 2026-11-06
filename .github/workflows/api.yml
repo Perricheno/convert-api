@@ -29,3 +29,7 @@ jobs:
           printf 'Before\n\n![](figure_0.png)\n\nAfter\n' > with-image.md
           curl -fsS -H 'X-API-Key: test' -F file=@with-image.md -F 'assets=@docs/media/page-home-en.png;filename=figure_0.png' -F format=tex http://127.0.0.1:8080/convert -o with-image.zip
           python3 -c 'import zipfile; z=zipfile.ZipFile("with-image.zip"); t=z.read("input.tex").decode(); assert t.index("Before") < t.index("input_files/figure_0.png") < t.index("After")'
+          docker exec api /opt/filee/engines/ffmpeg/bin/ffmpeg -v error -f lavfi -i color=c=blue:s=64x48:r=5 -t 1 -c:v libx264 -pix_fmt yuv420p -y /tmp/video.mp4
+          docker cp api:/tmp/video.mp4 video.mp4
+          curl -fsS -H 'X-API-Key: test' -F file=@video.mp4 -F format=gif http://127.0.0.1:8080/convert -o video.gif
+          python3 -c 'assert open("video.gif", "rb").read(6) in (b"GIF87a", b"GIF89a")'
