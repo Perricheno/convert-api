@@ -27,7 +27,7 @@ import (
 )
 
 var extRE = regexp.MustCompile(`^[a-z0-9_]{1,20}(\.[a-z0-9_]{1,10})?$`)
-var assetRE = regexp.MustCompile(`^figure_[0-9]{1,3}\.(png|jpe?g)$`)
+var assetRE = regexp.MustCompile(`^figure_[0-9]{1,3}\.(png|jpe?g|pdf)$`)
 
 // Filee launches native converters such as FFmpeg and LibreOffice. Cancel
 // their whole process group as well as the CLI when a request ends or times

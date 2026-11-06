@@ -27,6 +27,9 @@ jobs:
           curl -fsS -H 'X-API-Key: test' -F file=@input.txt -F format=docx http://127.0.0.1:8080/convert -o input.docx
           curl -fsS -H 'X-API-Key: test' -F file=@input.docx -F format=md http://127.0.0.1:8080/convert -o output.md
           grep -q 'Hello from Convert API' output.md
+          printf 'Before\n\n![](figure_0.pdf)\n\nAfter\n' > with-pdf.md
+          curl -fsS -H 'X-API-Key: test' -F file=@with-pdf.md -F 'assets=@output.pdf;filename=figure_0.pdf' -F format=tex http://127.0.0.1:8080/convert -o with-pdf.zip
+          python3 -c 'import zipfile; z=zipfile.ZipFile("with-pdf.zip"); assert z.read("input_files/figure_0.pdf") == open("output.pdf", "rb").read(); assert "input_files/figure_0.pdf" in z.read("input.tex").decode()'
           tar -czf sample.tar.gz input.txt
           curl -fsS -H 'X-API-Key: test' -F file=@sample.tar.gz -F format=zip http://127.0.0.1:8080/convert -o sample.zip
           python3 -c 'import zipfile; assert zipfile.ZipFile("sample.zip").read("input.txt").strip() == b"Hello from Convert API"'

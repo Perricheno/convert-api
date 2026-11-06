@@ -25,6 +25,19 @@ func TestConversionErrorCode(t *testing.T) {
 	}
 }
 
+func TestPageAssetNames(t *testing.T) {
+	for _, name := range []string{"figure_0.pdf", "figure_1.png", "figure_2.jpg"} {
+		if !assetRE.MatchString(name) {
+			t.Fatalf("valid asset %q rejected", name)
+		}
+	}
+	for _, name := range []string{"../figure_0.pdf", "figure_0.pdf.exe", "other.pdf"} {
+		if assetRE.MatchString(name) {
+			t.Fatalf("invalid asset %q accepted", name)
+		}
+	}
+}
+
 func TestCancelTerminatesConverterChildren(t *testing.T) {
 	marker := filepath.Join(t.TempDir(), "survived")
 	ctx, cancel := context.WithTimeout(context.Background(), 200*time.Millisecond)
