@@ -13,6 +13,7 @@ jobs:
         run: |
           docker run -d --name api -p 127.0.0.1:8080:8080 -e CONVERT_API_KEY=test convert-api
           for i in $(seq 1 30); do curl -fsS http://127.0.0.1:8080/health && break || sleep 1; done
+          curl -fsS -H 'X-API-Key: test' 'http://127.0.0.1:8080/formats?extension=docx' | python3 -c 'import json,sys; assert "pdf" in json.load(sys.stdin)["targets"]'
           echo 'Hello from Convert API' > input.txt
           test "$(curl -s -o /dev/null -w '%{http_code}' -F file=@input.txt -F format=pdf http://127.0.0.1:8080/convert)" = 401
           curl -fsS -H 'X-API-Key: test' -F file=@input.txt -F format=pdf http://127.0.0.1:8080/convert -o output.pdf
@@ -20,3 +21,6 @@ jobs:
           curl -fsS -H 'X-API-Key: test' -F file=@input.txt -F format=docx http://127.0.0.1:8080/convert -o input.docx
           curl -fsS -H 'X-API-Key: test' -F file=@input.docx -F format=md http://127.0.0.1:8080/convert -o output.md
           grep -q 'Hello from Convert API' output.md
+          tar -czf sample.tar.gz input.txt
+          curl -fsS -H 'X-API-Key: test' -F file=@sample.tar.gz -F format=zip http://127.0.0.1:8080/convert -o sample.zip
+          python3 -c 'import zipfile; assert zipfile.ZipFile("sample.zip").read("input.txt").strip() == b"Hello from Convert API"'

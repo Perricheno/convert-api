@@ -17,10 +17,11 @@ import (
 	"runtime"
 	"strconv"
 	"strings"
+	"sync"
 	"time"
 )
 
-var extRE = regexp.MustCompile(`^[a-z0-9]{1,10}$`)
+var extRE = regexp.MustCompile(`^[a-z0-9_]{1,20}(\.[a-z0-9_]{1,10})?$`)
 
 const maxSize = 40 << 20
 
@@ -44,6 +45,55 @@ func main() {
 		cli = "/opt/filee/filee-cli"
 	}
 	http.HandleFunc("/health", func(w http.ResponseWriter, r *http.Request) { fmt.Fprint(w, "ok") })
+	// Resolve capabilities from the same Filee installation that converts files.
+	// Cache successful results: the available engines stay fixed for a container.
+	var formats sync.Map
+	http.HandleFunc("/formats", func(w http.ResponseWriter, r *http.Request) {
+		if r.Method != http.MethodGet {
+			fail(w, 405, "Method not allowed")
+			return
+		}
+		if apiKey != "" && subtle.ConstantTimeCompare([]byte(r.Header.Get("X-API-Key")), []byte(apiKey)) != 1 {
+			fail(w, 401, "Unauthorized")
+			return
+		}
+		ext := strings.ToLower(r.URL.Query().Get("extension"))
+		if !extRE.MatchString(ext) {
+			fail(w, 400, "Invalid input extension")
+			return
+		}
+		if cached, ok := formats.Load(ext); ok {
+			w.Header().Set("Content-Type", "application/json")
+			w.Write(cached.([]byte))
+			return
+		}
+		select {
+		case slots <- struct{}{}:
+			defer func() { <-slots }()
+		default:
+			w.Header().Set("Retry-After", "5")
+			fail(w, 503, "Converter is busy")
+			return
+		}
+		dir, err := os.MkdirTemp("", "filee-formats-")
+		if err != nil {
+			fail(w, 500, "Cannot create workspace")
+			return
+		}
+		defer os.RemoveAll(dir)
+		ctx, cancel := context.WithTimeout(r.Context(), 20*time.Second)
+		defer cancel()
+		cmd := exec.CommandContext(ctx, cli, "formats", ext, "--json")
+		cmd.Env = append(os.Environ(), "HOME="+dir, "FILEE_DATA_DIR="+filepath.Join(dir, "filee-data"))
+		output, err := cmd.Output()
+		if err != nil || !json.Valid(output) {
+			fail(w, 422, "Unsupported input format")
+			return
+		}
+		formats.Store(ext, output)
+		w.Header().Set("Content-Type", "application/json")
+		w.Write(output)
+	})
 	http.HandleFunc("/convert", func(w http.ResponseWriter, r *http.Request) {
 		if r.Method != http.MethodPost {
 			fail(w, 405, "Method not allowed")
@@ -79,6 +129,13 @@ func main() {
 		}
 		defer file.Close()
 		ext := strings.ToLower(strings.TrimPrefix(filepath.Ext(header.Filename), "."))
+		lowerName := strings.ToLower(header.Filename)
+		for _, compound := range []string{"tar.gz", "tar.bz2", "tar.xz", "kepub.epub"} {
+			if strings.HasSuffix(lowerName, "."+compound) {
+				ext = compound
+				break
+			}
+		}
 		if !extRE.MatchString(ext) {
 			fail(w, 400, "Invalid input extension")
 			return
