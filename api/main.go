@@ -49,6 +49,7 @@ func fileeCommand(ctx context.Context, cli string, args ...string) *exec.Cmd {
 }
 
 const maxSize = 40 << 20
+const maxAssetSize = 30 << 20
 const shutdownGrace = 150 * time.Second
 
 // Stop accepting new requests on SIGTERM, but let conversions already in
@@ -229,7 +230,7 @@ func main() {
 		}
 		for _, asset := range assets {
 			name := asset.Filename
-			if !assetRE.MatchString(name) || asset.Size > 2<<20 {
+			if !assetRE.MatchString(name) || asset.Size > maxAssetSize {
 				fail(w, 400, "Invalid accompanying asset")
 				return
 			}
@@ -244,10 +245,10 @@ func main() {
 				fail(w, 400, "Duplicate or invalid asset")
 				return
 			}
-			count, copyErr := io.Copy(dest, io.LimitReader(source, (2<<20)+1))
+			count, copyErr := io.Copy(dest, io.LimitReader(source, maxAssetSize+1))
 			source.Close()
 			dest.Close()
-			if copyErr != nil || count > 2<<20 {
+			if copyErr != nil || count > maxAssetSize {
 				fail(w, 413, "Asset too large")
 				return
 			}
