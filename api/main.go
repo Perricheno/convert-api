@@ -188,6 +188,10 @@ func main() {
 			return
 		}
 		defer r.MultipartForm.RemoveAll()
+		if len(r.MultipartForm.File["file"]) != 1 || len(r.MultipartForm.Value["file"]) != 0 {
+			fail(w, 400, "Exactly one input file is required per request")
+			return
+		}
 		target := strings.ToLower(r.FormValue("format"))
 		if !extRE.MatchString(target) {
 			fail(w, 400, "Invalid output format")
