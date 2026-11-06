@@ -24,3 +24,5 @@ jobs:
           tar -czf sample.tar.gz input.txt
           curl -fsS -H 'X-API-Key: test' -F file=@sample.tar.gz -F format=zip http://127.0.0.1:8080/convert -o sample.zip
           python3 -c 'import zipfile; assert zipfile.ZipFile("sample.zip").read("input.txt").strip() == b"Hello from Convert API"'
+          curl -fsS -H 'X-API-Key: test' -F file=@sample.tar.gz -F format=folder http://127.0.0.1:8080/convert -o extracted.zip
+          python3 -c 'import zipfile; z=zipfile.ZipFile("extracted.zip"); assert z.read(z.namelist()[0]).strip() == b"Hello from Convert API"'

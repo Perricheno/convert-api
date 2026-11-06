@@ -5,6 +5,7 @@ import (
 	"context"
 	"crypto/subtle"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
 	"log"
@@ -170,22 +171,42 @@ func main() {
 			fail(w, 422, "Filee could not convert this file to the requested format")
 			return
 		}
-		entries, err := os.ReadDir(outdir)
-		if err != nil || len(entries) == 0 {
-			fail(w, 422, "Filee produced no output for this conversion")
-			return
-		}
+		// Filee may return a directory tree, e.g. when extracting an archive.
+		// Keep paths relative, never follow symlinks, and bound the response.
 		var files []string
-		for _, e := range entries {
-			if e.Type().IsRegular() {
-				files = append(files, e.Name())
+		var total int64
+		err = filepath.WalkDir(outdir, func(path string, entry os.DirEntry, walkErr error) error {
+			if walkErr != nil {
+				return walkErr
 			}
+			if !entry.Type().IsRegular() {
+				return nil
+			}
+			info, err := entry.Info()
+			if err != nil {
+				return err
+			}
+			total += info.Size()
+			if total > 200<<20 || len(files) >= 5000 {
+				return errors.New("output limit exceeded")
+			}
+			rel, err := filepath.Rel(outdir, path)
+			if err != nil {
+				return err
+			}
+			files = append(files, rel)
+			return nil
+		})
+		if err != nil {
+			fail(w, 422, "Filee output is too large or could not be read")
+			return
 		}
 		if len(files) == 0 {
 			fail(w, 422, "Filee produced no output")
 			return
 		}
-		if len(files) == 1 {
+
+		if len(files) == 1 && target != "folder" && filepath.Dir(files[0]) == "." {
 			name := files[0]
 			f, err := os.Open(filepath.Join(outdir, name))
 			if err != nil {
@@ -210,7 +231,7 @@ func main() {
 			if err != nil {
 				continue
 			}
-			entry, err := z.Create(name)
+			entry, err := z.Create(filepath.ToSlash(name))
 			if err == nil {
 				io.Copy(entry, f)
 			}
