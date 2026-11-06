@@ -4,6 +4,7 @@ on:
   schedule:
     - cron: '17 5 * * 1'
 permissions:
+  actions: write
   contents: write
   pull-requests: write
 jobs:
@@ -14,8 +15,16 @@ jobs:
       - name: Update release and checksum
         run: python3 api/update-filee.py
       - uses: peter-evans/create-pull-request@v7
+        id: update-pr
         with:
           branch: automation/update-filee
           title: Update Filee release
           commit-message: Update Filee release
           body: Review the upstream release, checksum, build and conversion tests before merging.
+      # Pull requests created with GITHUB_TOKEN do not trigger other workflows.
+      # Explicitly test the proposed branch so a release update is reviewable.
+      - name: Run API smoke test on the proposed update
+        if: steps.update-pr.outputs.pull-request-number != ''
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: gh workflow run api.yml --ref automation/update-filee
