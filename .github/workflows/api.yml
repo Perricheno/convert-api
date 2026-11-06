@@ -26,3 +26,6 @@ jobs:
           python3 -c 'import zipfile; assert zipfile.ZipFile("sample.zip").read("input.txt").strip() == b"Hello from Convert API"'
           curl -fsS -H 'X-API-Key: test' -F file=@sample.tar.gz -F format=folder http://127.0.0.1:8080/convert -o extracted.zip
           python3 -c 'import zipfile; z=zipfile.ZipFile("extracted.zip"); assert z.read(z.namelist()[0]).strip() == b"Hello from Convert API"'
+          printf 'Before\n\n![](figure_0.png)\n\nAfter\n' > with-image.md
+          curl -fsS -H 'X-API-Key: test' -F file=@with-image.md -F 'assets=@docs/media/page-home-en.png;filename=figure_0.png' -F format=tex http://127.0.0.1:8080/convert -o with-image.zip
+          python3 -c 'import zipfile; z=zipfile.ZipFile("with-image.zip"); t=z.read("input.tex").decode(); assert t.index("Before") < t.index("input_files/figure_0.png") < t.index("After")'

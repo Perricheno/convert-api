@@ -23,6 +23,7 @@ import (
 )
 
 var extRE = regexp.MustCompile(`^[a-z0-9_]{1,20}(\.[a-z0-9_]{1,10})?$`)
+var assetRE = regexp.MustCompile(`^figure_[0-9]{1,3}\.(png|jpe?g)$`)
 
 const maxSize = 40 << 20
 
@@ -160,6 +161,36 @@ func main() {
 		if err != nil || n > maxSize {
 			fail(w, 413, "File too large")
 			return
+		}
+		assets := r.MultipartForm.File["assets"]
+		if len(assets) > 50 || (len(assets) > 0 && ext != "md" && ext != "html") {
+			fail(w, 400, "Invalid accompanying assets")
+			return
+		}
+		for _, asset := range assets {
+			name := asset.Filename
+			if !assetRE.MatchString(name) || asset.Size > 2<<20 {
+				fail(w, 400, "Invalid accompanying asset")
+				return
+			}
+			source, err := asset.Open()
+			if err != nil {
+				fail(w, 400, "Cannot read asset")
+				return
+			}
+			dest, err := os.OpenFile(filepath.Join(dir, name), os.O_CREATE|os.O_WRONLY|os.O_EXCL, 0600)
+			if err != nil {
+				source.Close()
+				fail(w, 400, "Duplicate or invalid asset")
+				return
+			}
+			count, copyErr := io.Copy(dest, io.LimitReader(source, (2<<20)+1))
+			source.Close()
+			dest.Close()
+			if copyErr != nil || count > 2<<20 {
+				fail(w, 413, "Asset too large")
+				return
+			}
 		}
 		ctx, cancel := context.WithTimeout(r.Context(), 120*time.Second)
 		defer cancel()
