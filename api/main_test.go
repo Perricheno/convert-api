@@ -13,6 +13,18 @@ import (
 	"time"
 )
 
+func TestConversionErrorCode(t *testing.T) {
+	output := []byte("fail /tmp/private/input.pdf: This PDF has no tables drawn with lines, so there is nothing to put in a spreadsheet.")
+	for _, target := range []string{"csv", "xlsx"} {
+		if got := conversionErrorCode("pdf", target, output); got != "PDF_TABLES_NOT_FOUND" {
+			t.Fatalf("%s: %q", target, got)
+		}
+	}
+	if conversionErrorCode("pdf", "docx", output) != "" || conversionErrorCode("docx", "csv", output) != "" || conversionErrorCode("pdf", "csv", []byte("other failure")) != "" {
+		t.Fatal("unrelated errors must not be misclassified")
+	}
+}
+
 func TestCancelTerminatesConverterChildren(t *testing.T) {
 	marker := filepath.Join(t.TempDir(), "survived")
 	ctx, cancel := context.WithTimeout(context.Background(), 200*time.Millisecond)

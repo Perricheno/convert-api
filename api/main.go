@@ -2,6 +2,7 @@ package main
 
 import (
 	"archive/zip"
+	"bytes"
 	"context"
 	"crypto/subtle"
 	"encoding/json"
@@ -83,6 +84,13 @@ func fail(w http.ResponseWriter, code int, message string) {
 	w.Header().Set("Content-Type", "application/json")
 	w.WriteHeader(code)
 	json.NewEncoder(w).Encode(map[string]string{"error": message})
+}
+
+func conversionErrorCode(extension, target string, output []byte) string {
+	if extension == "pdf" && (target == "csv" || target == "xlsx") && bytes.Contains(output, []byte("This PDF has no tables drawn with lines")) {
+		return "PDF_TABLES_NOT_FOUND"
+	}
+	return ""
 }
 func main() {
 	limit := runtime.NumCPU()
@@ -264,6 +272,12 @@ func main() {
 				return
 			}
 			log.Printf("conversion failed: %s", output)
+			if conversionErrorCode(ext, target, output) == "PDF_TABLES_NOT_FOUND" {
+				w.Header().Set("Content-Type", "application/json")
+				w.WriteHeader(http.StatusUnprocessableEntity)
+				_ = json.NewEncoder(w).Encode(map[string]string{"error": "No ruled tables were found in the PDF. Scanned PDFs and tables without visible lines may not be supported.", "code": "PDF_TABLES_NOT_FOUND"})
+				return
+			}
 			fail(w, 422, "Filee could not convert this file to the requested format")
 			return
 		}
