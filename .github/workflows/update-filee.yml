@@ -1,0 +1,21 @@
+name: Check Filee release
+on:
+  workflow_dispatch:
+  schedule:
+    - cron: '17 5 * * 1'
+permissions:
+  contents: write
+  pull-requests: write
+jobs:
+  update:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Update release and checksum
+        run: python3 api/update-filee.py
+      - uses: peter-evans/create-pull-request@v7
+        with:
+          branch: automation/update-filee
+          title: Update Filee release
+          commit-message: Update Filee release
+          body: Review the upstream release, checksum, build and conversion tests before merging.

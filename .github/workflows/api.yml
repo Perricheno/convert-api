@@ -1,0 +1,19 @@
+name: API smoke test
+on: [push, pull_request]
+permissions:
+  contents: read
+jobs:
+  smoke:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Build image
+        run: docker build -t convert-api ./api
+      - name: Test conversion
+        run: |
+          docker run -d --name api -p 127.0.0.1:8080:8080 -e CONVERT_API_KEY=test convert-api
+          for i in $(seq 1 30); do curl -fsS http://127.0.0.1:8080/health && break || sleep 1; done
+          echo 'Hello from Convert API' > input.txt
+          test "$(curl -s -o /dev/null -w '%{http_code}' -F file=@input.txt -F format=pdf http://127.0.0.1:8080/convert)" = 401
+          curl -fsS -H 'X-API-Key: test' -F file=@input.txt -F format=pdf http://127.0.0.1:8080/convert -o output.pdf
+          head -c 5 output.pdf | grep -q '%PDF-'
