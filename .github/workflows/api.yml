@@ -1,5 +1,5 @@
 name: API smoke test
-on: [push, pull_request]
+on: [push, pull_request, workflow_dispatch]
 permissions:
   contents: read
 jobs:
@@ -17,3 +17,6 @@ jobs:
           test "$(curl -s -o /dev/null -w '%{http_code}' -F file=@input.txt -F format=pdf http://127.0.0.1:8080/convert)" = 401
           curl -fsS -H 'X-API-Key: test' -F file=@input.txt -F format=pdf http://127.0.0.1:8080/convert -o output.pdf
           head -c 5 output.pdf | grep -q '%PDF-'
+          curl -fsS -H 'X-API-Key: test' -F file=@input.txt -F format=docx http://127.0.0.1:8080/convert -o input.docx
+          curl -fsS -H 'X-API-Key: test' -F file=@input.docx -F format=md http://127.0.0.1:8080/convert -o output.md
+          grep -q 'Hello from Convert API' output.md
