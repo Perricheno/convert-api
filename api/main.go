@@ -34,6 +34,11 @@ func fail(w http.ResponseWriter, code int, message string) {
 }
 func main() {
 	limit := runtime.NumCPU()
+	// Conversions may start memory-heavy native engines. Keep the default
+	// bounded; operators can raise it explicitly for larger instances.
+	if limit > 4 {
+		limit = 4
+	}
 	if v, err := strconv.Atoi(os.Getenv("CONVERT_CONCURRENCY")); err == nil && v > 0 {
 		limit = v
 	}
