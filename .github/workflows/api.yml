@@ -13,6 +13,8 @@ jobs:
           cache: false
       - name: Test cancellation and graceful shutdown
         run: go test ./api/main.go ./api/main_test.go
+      - name: Test release download retries
+        run: python3 -m unittest discover -s api -p test_update_filee.py
       - name: Build image
         run: docker build -t convert-api ./api
       - name: Test conversion

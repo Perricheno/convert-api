@@ -1,32 +1,51 @@
 #!/usr/bin/env python3
 """Pin the latest upstream release and its published Linux x64 checksum."""
-import json, re, urllib.request
+import json, re, time, urllib.error, urllib.request
 from pathlib import Path
 
 def get(url):
     req = urllib.request.Request(url, headers={"User-Agent": "convert-api-updater", "Accept": "application/vnd.github+json"})
-    with urllib.request.urlopen(req, timeout=30) as response:
-        return response.read()
-release = json.loads(get("https://api.github.com/repos/KnifeLemon/Filee/releases/latest"))
-version = release["tag_name"].removeprefix("v")
-if not re.fullmatch(r"[0-9]+\.[0-9]+\.[0-9]+", version):
-    raise SystemExit("Unexpected release tag")
-archive = f"Filee-{version}-linux-x64.tar.gz"
-checksums = next(a["browser_download_url"] for a in release["assets"] if a["name"] == f"Filee-{version}-linux-x64-SHA256SUMS.txt")
-lines = get(checksums).decode().splitlines()
-sha = next(line.split()[0] for line in lines if line.split()[-1].lstrip("*") == archive)
-if not re.fullmatch(r"[a-fA-F0-9]{64}", sha):
-    raise SystemExit("Invalid checksum")
-# Follow the exact FFmpeg build and checksum selected by that Filee release.
-manifest = json.loads(get(f"https://raw.githubusercontent.com/KnifeLemon/Filee/v{version}/src/Filee.Engines/Infrastructure/engines.json"))
-ffmpeg = manifest["platforms"]["linux-x64"]["components"]["ffmpeg"]
-ffmpeg_url, ffmpeg_sha = ffmpeg["url"], ffmpeg["sha256"].lower()
-if not ffmpeg_url.startswith("https://github.com/BtbN/FFmpeg-Builds/releases/download/") or not re.fullmatch(r"[a-f0-9]{64}", ffmpeg_sha):
-    raise SystemExit("Unexpected FFmpeg source or checksum; review manually")
-path = Path(__file__).with_name("Dockerfile")
-text = path.read_text()
-text = re.sub(r"(?m)^ARG FILEE_VERSION=.*$", f"ARG FILEE_VERSION={version}", text)
-text = re.sub(r"(?m)^ARG FILEE_SHA256=.*$", f"ARG FILEE_SHA256={sha.lower()}", text)
-text = re.sub(r"(?m)^ARG FFMPEG_URL=.*$", lambda _: f"ARG FFMPEG_URL={ffmpeg_url}", text)
-text = re.sub(r"(?m)^ARG FFMPEG_SHA256=.*$", lambda _: f"ARG FFMPEG_SHA256={ffmpeg_sha}", text)
-path.write_text(text)
+    for attempt in range(3):
+        try:
+            with urllib.request.urlopen(req, timeout=30) as response:
+                data = response.read(2 * 1024 * 1024 + 1)
+                if len(data) > 2 * 1024 * 1024:
+                    raise ValueError("Release metadata exceeds 2 MiB")
+                return data
+        except urllib.error.HTTPError as error:
+            if error.code not in (408, 429, 500, 502, 503, 504) or attempt == 2:
+                raise
+        except (urllib.error.URLError, TimeoutError):
+            if attempt == 2:
+                raise
+        time.sleep(2 ** attempt)
+
+
+def main():
+    release = json.loads(get("https://api.github.com/repos/KnifeLemon/Filee/releases/latest"))
+    version = release["tag_name"].removeprefix("v")
+    if not re.fullmatch(r"[0-9]+\.[0-9]+\.[0-9]+", version):
+        raise SystemExit("Unexpected release tag")
+    archive = f"Filee-{version}-linux-x64.tar.gz"
+    checksums = next(a["browser_download_url"] for a in release["assets"] if a["name"] == f"Filee-{version}-linux-x64-SHA256SUMS.txt")
+    lines = get(checksums).decode().splitlines()
+    sha = next(line.split()[0] for line in lines if line.split() and line.split()[-1].lstrip("*") == archive)
+    if not re.fullmatch(r"[a-fA-F0-9]{64}", sha):
+        raise SystemExit("Invalid checksum")
+    # Follow the exact FFmpeg build and checksum selected by that Filee release.
+    manifest = json.loads(get(f"https://raw.githubusercontent.com/KnifeLemon/Filee/v{version}/src/Filee.Engines/Infrastructure/engines.json"))
+    ffmpeg = manifest["platforms"]["linux-x64"]["components"]["ffmpeg"]
+    ffmpeg_url, ffmpeg_sha = ffmpeg["url"], ffmpeg["sha256"].lower()
+    if not ffmpeg_url.startswith("https://github.com/BtbN/FFmpeg-Builds/releases/download/") or not re.fullmatch(r"[a-f0-9]{64}", ffmpeg_sha):
+        raise SystemExit("Unexpected FFmpeg source or checksum; review manually")
+    path = Path(__file__).with_name("Dockerfile")
+    text = path.read_text()
+    text = re.sub(r"(?m)^ARG FILEE_VERSION=.*$", f"ARG FILEE_VERSION={version}", text)
+    text = re.sub(r"(?m)^ARG FILEE_SHA256=.*$", f"ARG FILEE_SHA256={sha.lower()}", text)
+    text = re.sub(r"(?m)^ARG FFMPEG_URL=.*$", lambda _: f"ARG FFMPEG_URL={ffmpeg_url}", text)
+    text = re.sub(r"(?m)^ARG FFMPEG_SHA256=.*$", lambda _: f"ARG FFMPEG_SHA256={ffmpeg_sha}", text)
+    path.write_text(text)
+
+
+if __name__ == "__main__":
+    main()
