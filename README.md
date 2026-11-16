@@ -29,3 +29,17 @@ Release metadata downloads retry transient HTTP/network failures up to three tim
 with bounded backoff. Permanent errors and invalid metadata still stop the update;
 failed downloads leave the Dockerfile unchanged. Test this boundary with
 `python3 -m unittest discover -s api -p test_update_filee.py`.
+
+## Server workspace
+
+Keep host-local maintenance material inside this checkout's ignored `.local/`
+directory: `.local/worktrees/` for linked Git worktrees, `.local/update-runs/`
+for build logs and verification evidence, and `.local/maintenance/` for archived
+one-off scripts. Use `git worktree move` when relocating a registered worktree.
+Archived scripts and reports preserve their original contents and historical
+paths; they describe completed operations and are not reusable deployment commands.
+The private `.local/README.md` records the current host layout and migration details.
+
+The existing Perricheno deployment still uses `/root/perricheno/filee-service/`
+and `/root/perricheno/scripts/update-filee-service.sh`. Its systemd updater is
+independent of these maintenance archives.

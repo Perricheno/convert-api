@@ -5,6 +5,9 @@ artifacts/
 publish/
 Releases/
 
+# Private, host-local maintenance archives, evidence and linked worktrees
+/.local/
+
 # Downloaded conversion engines (see build/fetch-engines.ps1)
 engines/
 build/.cache/
